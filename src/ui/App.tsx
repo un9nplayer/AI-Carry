@@ -98,16 +98,6 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   const [terminalHeight, setTerminalHeight] = useState(process.stdout.rows || 24);
   const [scrollOffset, setScrollOffset] = useState(0);
 
-  // Mount Screen Buffer
-  useEffect(() => {
-    // Enter alternative screen buffer, clear screen, and move cursor to 1,1
-    process.stdout.write('\u001b[?1049h\u001b[2J\u001b[H');
-
-    return () => {
-      // Exit alternative screen buffer
-      process.stdout.write('\u001b[?1049l');
-    };
-  }, []);
 
   // Update terminal height on resize
   useEffect(() => {

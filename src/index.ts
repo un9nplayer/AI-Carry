@@ -156,6 +156,9 @@ ${activeMode === 'build'
   }
 }
 
+// Enter alternative screen buffer, clear screen, and move cursor to 1,1
+process.stdout.write('\u001b[?1049h\u001b[2J\u001b[H');
+
 // Start Ink UI
 const ui = render(
   React.createElement(App, {
