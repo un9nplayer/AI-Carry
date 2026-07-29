@@ -275,10 +275,6 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   };
 
   useInput(async (input, key) => {
-    // Prevent raw ANSI escape sequences from leaking into input buffer
-    if (input && input.startsWith('\u001b') && input !== '\u001b') {
-      return;
-    }
 
     if (showModelSelector) {
       if (isFetchingModels) {
@@ -624,6 +620,10 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
       exit();
     } else if (input) {
       if (!key.ctrl && !key.meta && !key.tab) {
+        // Prevent raw ANSI escape sequences from leaking into input buffer as characters
+        if (input.startsWith('\u001b') && input !== '\u001b') {
+          return;
+        }
         const before = inputBuffer.slice(0, cursorPosition);
         const after = inputBuffer.slice(cursorPosition);
         updateInput(before + input + after, cursorPosition + input.length);
