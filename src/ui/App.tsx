@@ -70,6 +70,14 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   const [contextPercent, setContextPercent] = useState(0);
   const { exit } = useApp();
 
+  const inputBufferRef = React.useRef(inputBuffer);
+  const cursorPositionRef = React.useRef(cursorPosition);
+
+  useEffect(() => {
+    inputBufferRef.current = inputBuffer;
+    cursorPositionRef.current = cursorPosition;
+  }, [inputBuffer, cursorPosition]);
+
   // Undo / Redo Stacks
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
@@ -182,14 +190,30 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
     setScrollOffset(Math.max(0, chatLinesCount - currentViewportHeight));
   }, [chatLinesCount, currentViewportHeight]);
 
-  // Mouse scroll wheel support via raw SGR events
+  // Mouse scroll wheel support via raw SGR events & Linux keyboard shortcuts
   useEffect(() => {
     const handleRawInput = (data: Buffer) => {
       const str = data.toString('utf8');
+      
+      // Scroll handling
       if (str.startsWith('\u001b[<64;')) {
         setScrollOffset((prev) => Math.max(0, prev - 3));
+        return;
       } else if (str.startsWith('\u001b[<65;')) {
         setScrollOffset((prev) => Math.min(Math.max(0, chatLinesCount - currentViewportHeight), prev + 3));
+        return;
+      }
+      
+      // Ctrl+Left / Alt+Left (Jump word left)
+      if (str === '\u001b[1;5D' || str === '\u001b[5D' || str === '\u001b\u001b[D' || str === '\u001b[1;3D') {
+        setCursorPosition((prev) => findWordBoundaryLeft(inputBufferRef.current, prev));
+        return;
+      }
+      
+      // Ctrl+Right / Alt+Right (Jump word right)
+      if (str === '\u001b[1;5C' || str === '\u001b[5C' || str === '\u001b\u001b[C' || str === '\u001b[1;3C') {
+        setCursorPosition((prev) => findWordBoundaryRight(inputBufferRef.current, prev));
+        return;
       }
     };
 
@@ -251,6 +275,11 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   };
 
   useInput(async (input, key) => {
+    // Prevent raw ANSI escape sequences from leaking into input buffer
+    if (input && input.startsWith('\u001b') && input !== '\u001b') {
+      return;
+    }
+
     if (showModelSelector) {
       if (isFetchingModels) {
         if (key.escape) {
