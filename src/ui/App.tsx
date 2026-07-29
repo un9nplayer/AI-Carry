@@ -215,6 +215,30 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
         setCursorPosition((prev) => findWordBoundaryRight(inputBufferRef.current, prev));
         return;
       }
+
+      // Raw Backspace (ASCII 127 Delete or ASCII 8 Backspace)
+      if (str === '\u007f' || str === '\u0008') {
+        const cur = cursorPositionRef.current;
+        const buf = inputBufferRef.current;
+        if (cur > 0) {
+          const before = buf.slice(0, cur - 1);
+          const after = buf.slice(cur);
+          updateInput(before + after, cur - 1);
+        }
+        return;
+      }
+
+      // Raw Delete (Escape sequence for Delete key)
+      if (str === '\u001b[3~') {
+        const cur = cursorPositionRef.current;
+        const buf = inputBufferRef.current;
+        if (cur < buf.length) {
+          const before = buf.slice(0, cur);
+          const after = buf.slice(cur + 1);
+          updateInput(before + after, cur);
+        }
+        return;
+      }
     };
 
     process.stdin.on('data', handleRawInput);
@@ -275,6 +299,10 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   };
 
   useInput(async (input, key) => {
+    // Ignore Backspace and Delete since they are handled exclusively by the raw stdin listener
+    if (key.backspace || key.delete || input === '\u007f' || input === '\u0008' || input === '\u001b[3~') {
+      return;
+    }
 
     if (showModelSelector) {
       if (isFetchingModels) {
