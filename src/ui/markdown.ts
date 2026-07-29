@@ -51,8 +51,17 @@ export function renderMarkdown(markdown: string): string {
         const isStreaming = remaining === '' || remaining.startsWith('\n');
         
         if (isStreaming) {
-          const content = remaining.trim();
-          const replacement = `${header}${content}\n${chalk.blue('⠋ Running/Streaming...')}\n${border}\n`;
+          let content = remaining;
+          const partialClose = `</${tool}`;
+          if (content.endsWith(partialClose)) {
+            content = content.slice(0, -partialClose.length);
+          } else if (content.endsWith('</')) {
+            content = content.slice(0, -2);
+          } else if (content.endsWith('<')) {
+            content = content.slice(0, -1);
+          }
+          const cleanContent = content.trim();
+          const replacement = `${header}${cleanContent}\n${chalk.blue('⠋ Running/Streaming...')}\n${border}\n`;
           output = output.slice(0, startIdx) + replacement;
           break; // Since we consumed to the end of the string
         } else {
@@ -99,7 +108,17 @@ export function renderMarkdown(markdown: string): string {
       const isStreaming = remaining === '' || remaining.startsWith('\n');
       
       if (isStreaming) {
-        const replacement = `\n${statusHeader}\n${border}\n${cleanContent}\n${chalk.yellow('⠋ Streaming output...')}\n${border}\n`;
+        let content = remaining;
+        const partialClose = '</output>';
+        for (let i = partialClose.length; i > 0; i--) {
+          const sub = partialClose.slice(0, i);
+          if (content.endsWith(sub)) {
+            content = content.slice(0, -sub.length);
+            break;
+          }
+        }
+        const cleanContentText = content.trim();
+        const replacement = `\n${statusHeader}\n${border}\n${cleanContentText}\n${chalk.yellow('⠋ Streaming output...')}\n${border}\n`;
         output = output.slice(0, startIdx) + replacement;
         break; // Since we consumed to the end of the string
       } else {

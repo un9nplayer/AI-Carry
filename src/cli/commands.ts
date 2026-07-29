@@ -145,11 +145,17 @@ export async function executeSlashCommand(
             `  theme:           ${config.theme}`
         };
       }
-      const key = args[0];
+      let key = args[0];
       const val = args[1];
       if (!val) {
         return { handled: true, output: `Usage: /config <key> <value>` };
       }
+      const configKeys = ['defaultModel', 'temperature', 'maxTokens', 'streaming', 'toolPermissions', 'theme', 'autosave', 'contextThreshold', 'retryCount', 'apiKeys'];
+      const matchedKey = configKeys.find(k => k.toLowerCase() === key.toLowerCase());
+      if (!matchedKey) {
+        return { handled: true, output: `Unknown config key: ${key}. Valid keys: ${configKeys.join(', ')}` };
+      }
+      key = matchedKey;
       try {
         let typedVal: any = val;
         if (val === 'true') typedVal = true;
