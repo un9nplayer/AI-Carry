@@ -491,12 +491,12 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
     }
 
     // Ctrl+A - Jump to start
-    if (key.ctrl && input === 'a') {
+    if ((key.ctrl && input === 'a') || (key as any).home || input === '\u001b[H' || input === '\u001b[1~') {
       setCursorPosition(0);
       return;
     }
     // Ctrl+E - Jump to end
-    if (key.ctrl && input === 'e') {
+    if ((key.ctrl && input === 'e') || (key as any).end || input === '\u001b[F' || input === '\u001b[4~') {
       setCursorPosition(inputBuffer.length);
       return;
     }
@@ -523,6 +523,27 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
       const lastSpaceIdx = trimmedBefore.lastIndexOf(' ');
       const newBefore = lastSpaceIdx === -1 ? '' : trimmedBefore.slice(0, lastSpaceIdx + 1);
       updateInput(newBefore + after, newBefore.length);
+      return;
+    }
+
+    // Ctrl+D - Delete char under cursor / exit if empty
+    if (key.ctrl && input === 'd') {
+      if (inputBuffer === '') {
+        exit();
+        return;
+      }
+      if (cursorPosition < inputBuffer.length) {
+        const before = inputBuffer.slice(0, cursorPosition);
+        const after = inputBuffer.slice(cursorPosition + 1);
+        updateInput(before + after, cursorPosition);
+      }
+      return;
+    }
+
+    // Ctrl+L - Clear screen
+    if (key.ctrl && input === 'l') {
+      setHistory([]);
+      setScrollOffset(0);
       return;
     }
 
@@ -560,6 +581,14 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
           openModelSelector();
         }
 
+        if (response.action === 'clear') {
+          setHistory([]);
+          setScrollOffset(0);
+          setStreamingOutput('');
+          setIsGenerating(false);
+          return;
+        }
+
         if (response.action === 'new-chat' || response.action === 'load-chat') {
           setHistory(response.payload.history);
           setStreamingOutput('');
@@ -579,13 +608,13 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
         setIsGenerating(false);
         setStreamingOutput('');
       }
-    } else if (key.backspace) {
+    } else if (key.backspace || input === '\u007f' || input === '\u0008') {
       if (cursorPosition > 0) {
         const before = inputBuffer.slice(0, cursorPosition - 1);
         const after = inputBuffer.slice(cursorPosition);
         updateInput(before + after, cursorPosition - 1);
       }
-    } else if (key.delete) {
+    } else if (key.delete || input === '\u001b[3~') {
       if (cursorPosition < inputBuffer.length) {
         const before = inputBuffer.slice(0, cursorPosition);
         const after = inputBuffer.slice(cursorPosition + 1);
