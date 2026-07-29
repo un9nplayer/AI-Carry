@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build Output
+dist/
+
+# Configuration & Environment
+.env
+.env.*
+!.env.example
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+sessions.db
+
+# OS / Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Testing
+.aicarry-test-temp/
+test-temp/
