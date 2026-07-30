@@ -102,7 +102,7 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   // Generating, streaming & thinking animation states
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingOutput, setStreamingOutput] = useState('');
-  const [showThinkingDetails, setShowThinkingDetails] = useState(true);
+  const [showThinkingDetails, setShowThinkingDetails] = useState(false);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
 
@@ -146,31 +146,46 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   // Process history into lines
   const chatLines: string[] = [];
   for (const msg of history) {
-    let roleLabel = '';
-    if (msg.role === 'user') {
-      roleLabel = chalk.cyan.bold('👤 USER:');
-    } else if (msg.role === 'system') {
-      roleLabel = chalk.yellow.bold('⚙️ SYSTEM:');
-    } else {
-      roleLabel = chalk.white.bold('🤖 ASSISTANT:');
+    // Skip internal system messages that are just mode/model notifications (visible in sidebar)
+    if (msg.role === 'system' && (
+      msg.content.startsWith('Switched mode to:') ||
+      msg.content.startsWith('Switched active model to:') ||
+      msg.content.startsWith('Welcome to AI Carry')
+    )) {
+      continue;
     }
-    chatLines.push(roleLabel);
-    
+
+    if (msg.role === 'user') {
+      chatLines.push(colors.primary('  '));
+      chatLines.push(colors.muted('  You'));
+    } else if (msg.role === 'system') {
+      chatLines.push('');
+      chatLines.push(colors.muted('  ─── System ───'));
+    } else {
+      chatLines.push('');
+      chatLines.push(colors.muted('  AI Carry'));
+    }
+
     const rendered = renderMarkdown(msg.content);
     const lines = rendered.split('\n');
     for (const l of lines) {
-      chatLines.push(l);
+      if (msg.role === 'user') {
+        chatLines.push('  ' + l);
+      } else {
+        chatLines.push('  ' + l);
+      }
     }
-    chatLines.push(''); // Add spacing between messages
+    chatLines.push('');
   }
 
   // Live streaming lines
   if (streamingOutput) {
-    chatLines.push(chalk.white.bold('🤖 ASSISTANT:'));
+    chatLines.push('');
+    chatLines.push(colors.muted('  AI Carry'));
     const rendered = renderMarkdown(streamingOutput);
     const lines = rendered.split('\n');
     for (const l of lines) {
-      chatLines.push(l);
+      chatLines.push('  ' + l);
     }
     chatLines.push('');
   }
@@ -324,7 +339,7 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
         setActiveModel(selectedModel);
         onModelChange(selectedModel);
         setShowModelSelector(false);
-        setHistory((prev) => [...prev, { role: 'system', content: `Switched active model to: ${selectedModel}` }]);
+        // Don't clutter chat with model switch — the sidebar shows current model
       } else if (key.escape) {
         setShowModelSelector(false);
       }
@@ -420,7 +435,7 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
         if (onModeChange) {
           onModeChange(nextMode);
         }
-        setHistory((prev) => [...prev, { role: 'system', content: `Switched mode to: ${nextMode.toUpperCase()}` }]);
+        // Do NOT add to chat history — mode is visible in the sidebar already
       }
       return;
     }
@@ -827,32 +842,36 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
                 ))}
 
                 {/* Animated Thinking & Expandable Details Panel */}
-                {isGenerating && (
-                  <Box flexDirection="column" marginTop={1}>
-                    <Box gap={1}>
-                      <Text>{colors.warning(SPINNER_FRAMES[spinnerFrame])}</Text>
-                      <Text>{colors.warning(`Model is thinking... (${elapsedTime}s elapsed)`)}</Text>
-                      <Text>{colors.muted('[Press T to toggle details]')}</Text>
-                    </Box>
-
-                    {showThinkingDetails && (
-                      <Box flexDirection="column" borderStyle={colors.inkBorderStyle} borderColor={colors.inkBorderColor} paddingX={1} marginTop={1}>
-                        <Text>{colors.warning('Thinking Details Log')}</Text>
-                        <Text>{colors.muted(`  • Active Model: ${activeModel}`)}</Text>
-                        <Text>{colors.muted(`  • Provider: ${providerName}`)}</Text>
-                        <Text>{colors.muted(`  • Mode: ${mode.toUpperCase()}`)}</Text>
-                        <Text>{colors.muted('  • Status: Querying provider endpoint & processing tokens...')}</Text>
+                  {isGenerating && (
+                    <Box flexDirection="column" marginTop={1}>
+                      <Box gap={1}>
+                        <Text>{colors.warning(SPINNER_FRAMES[spinnerFrame])}</Text>
+                        <Text>{colors.muted(`thinking... ${elapsedTime}s`)}</Text>
+                        <Text>{colors.muted('  T: expand')}</Text>
                       </Box>
-                    )}
-                  </Box>
-                )}
+
+                      {showThinkingDetails && (
+                        <Box flexDirection="column" borderStyle={colors.inkBorderStyle} borderColor={colors.inkBorderColor} paddingX={1} marginTop={1}>
+                          <Text>{colors.muted('Thought details')}</Text>
+                          <Text>{colors.muted(`  Model: ${activeModel}`)}</Text>
+                          <Text>{colors.muted(`  Provider: ${providerName}`)}</Text>
+                          <Text>{colors.muted(`  Mode: ${mode}`)}</Text>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
               </Box>
             )}
           </Box>
 
           {/* Mode & Model Indicator Row */}
           <Box paddingX={1} marginBottom={0} marginTop={1}>
-            <Text>{mode === 'plan' ? colors.success('Plan') : colors.error('Build')} · {colors.secondary(activeModel)}</Text>
+            <Text>
+              {mode === 'plan'
+                ? colors.success('plan')
+                : colors.warning('build')}
+              {colors.muted(` · ${activeModel}`)}
+            </Text>
           </Box>
 
           {/* Input Prompt Box with vertical border styling matching OpenCode */}
@@ -895,29 +914,34 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
           borderBottom={false}
         >
           {/* Sidebar Top: Greeting and Metrics */}
-          <Box flexDirection="column" gap={1}>
-            <Box flexDirection="column">
-              <Text bold>{colors.primary('Greeting')}</Text>
-              <Text>{colors.text('Active workspace session')}</Text>
+          <Box flexDirection="column">
+            <Box flexDirection="column" marginBottom={1}>
+              <Text>{colors.muted('Greeting')}</Text>
+              <Text>{colors.text('AI Carry')}</Text>
             </Box>
 
-            <Box flexDirection="column" marginTop={1}>
-              <Text bold>{colors.secondary('Context')}</Text>
+            <Box flexDirection="column" marginBottom={1}>
+              <Text>{colors.muted('Context')}</Text>
               <Text>{colors.text(`${formatNumber(usedTokens)} tokens`)}</Text>
               <Text>{colors.muted(`${contextPercent}% used`)}</Text>
-              <Text>{colors.success(`$${cost.toFixed(4)} spent`)}</Text>
+              <Text>{colors.text(`$${cost.toFixed(4)} spent`)}</Text>
             </Box>
 
-            <Box flexDirection="column" marginTop={1}>
-              <Text bold>{colors.primary('Mode settings')}</Text>
-              <Text>{colors.text(mode === 'plan' ? 'Read-only mode' : 'Execution mode')}</Text>
+            <Box flexDirection="column" marginBottom={1}>
+              <Text>{colors.muted('Mode')}</Text>
+              <Text>{mode === 'plan' ? colors.success('plan (read-only)') : colors.warning('build (execute)')}</Text>
+            </Box>
+
+            <Box flexDirection="column">
+              <Text>{colors.muted('Model')}</Text>
+              <Text>{colors.text(activeModel)}</Text>
             </Box>
           </Box>
 
-          {/* Sidebar Bottom: App version & status dot indicator */}
+          {/* Sidebar Bottom */}
           <Box gap={1} alignItems="center">
             <Text color="green">●</Text>
-            <Text>{colors.text('AI Carry 1.0.0')}</Text>
+            <Text>{colors.muted('AI Carry 1.0.0')}</Text>
           </Box>
         </Box>
       </Box>

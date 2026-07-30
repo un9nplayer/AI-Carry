@@ -1,15 +1,14 @@
 import React from 'react';
 import { render } from 'ink';
 import os from 'node:os';
-import chalk from 'chalk';
 import { initConfig, getConfig } from './config/index.js';
 import { getDb } from './sessions/db.js';
 import { ModelManager } from './models/manager.js';
 import { App } from './ui/App.js';
-import { renderMarkdown } from './ui/markdown.js';
 import { executeSlashCommand } from './cli/commands.js';
 import { parseToolCalls, executeToolCalls } from './tools/executor.js';
-import { createSession, getSession, getSessionHistory, addMessageToSession, updateSessionModel, listSessions, deleteSession } from './sessions/manager.js';
+import { TerminalTool } from './tools/builtin/terminal.js';
+import { createSession, getSessionHistory, addMessageToSession, updateSessionModel, listSessions, deleteSession } from './sessions/manager.js';
 
 // Init config and database
 initConfig();
@@ -73,67 +72,48 @@ async function handleCommand(
   const platform = os.platform();
   const osName = platform === 'win32' ? 'Windows' : platform === 'darwin' ? 'macOS' : 'Linux';
 
-  // Define XML tools system prompt instruction
-  const baseSystemPrompt = `You are AI Carry, a terminal-first Agentic AI for offensive security and software development.
-You have direct terminal/system access through XML-style tool calls.
+  // Active working directory — always keep the model informed
+  const activeDir = TerminalTool.activeCwd || process.cwd();
 
-Available XML Tools:
-- Terminal shell runner:
-<terminal>
-command line here
-</terminal>
+  const toolDocs = `
+Available XML Tools (use ONLY in BUILD mode):
 
-- Cat file reader:
-<cat>
-file path here
-</cat>
-
-- Grep text finder:
-<grep>
-search query here
-</grep>
-
-- File writer:
-<write>
-{
-  "path": "file_path_relative_to_active_dir",
-  "content": "full_file_content"
-}
-</write>
-
-- File exact search-and-replace editor:
-<edit>
-{
-  "path": "file_path_relative_to_active_dir",
-  "target": "exact_code_block_to_replace",
-  "replacement": "new_code_block_to_substitute"
-}
-</edit>
-
-- Web page fetcher (extracts text):
-<webfetch>
-{
-  "url": "http_or_https_url"
-}
-</webfetch>
-
-- Web search engine query:
-<websearch>
-{
-  "query": "search_terms_or_question"
-}
-</websearch>
-
-Current Operating System: ${osName} (Platform: ${platform})
-Current Mode: ${activeMode.toUpperCase()}
-Current Tool Permission Level: ${config.toolPermissions.toUpperCase()}
-
-You must ensure that all terminal commands and scripts you output are strictly compatible with the current operating system (${osName}).
-
-${activeMode === 'build' 
-  ? `You are in BUILD Mode. If tasks require checking files, running terminal processes, or creating directories, you MUST use the XML tags to execute them immediately. You have full permission to run terminal commands (toolPermissions is set to ${config.toolPermissions.toUpperCase()}). Do not ask for confirmation; output the tags directly.` 
-  : 'You are in PLAN Mode. Outline your steps, command strategies, and findings in markdown. Do NOT output any XML tool tags.'}
+<terminal>\ncommand here\n</terminal>
+<cat>\nfile path\n</cat>
+<grep>\nsearch string\n</grep>
+<write>\n{"path": "relative/path", "content": "full file content"}\n</write>
+<edit>\n{"path": "relative/path", "target": "exact block to replace", "replacement": "new block"}\n</edit>
+<webfetch>\n{"url": "https://..."}\n</webfetch>
+<websearch>\n{"query": "..."}\n</websearch>
 `;
+
+  const planPrompt = `You are AI Carry, a terminal-first agentic AI for software development and offensive security.
+
+You are currently in PLAN mode (read-only). In this mode:
+- Think carefully and ask clarifying questions before you propose any plan.
+- Identify ambiguities: ask the user what OS, language, tool constraints, or scope they have in mind.
+- Once you have enough information, write a clear numbered plan with expected commands and outcomes.
+- Do NOT output any XML tool tags in Plan mode. Explain what you *would* do, not do it.
+- At the end of your plan, tell the user to switch to Build mode (Tab key) to execute.
+
+Current Working Directory: ${activeDir}
+OS: ${osName} (${platform})
+`;
+
+  const buildPrompt = `You are AI Carry, a terminal-first agentic AI for software development and offensive security.
+
+You are currently in BUILD mode (execution). In this mode:
+- Execute tasks immediately using XML tool calls. Do not ask for confirmation unless the action is destructive.
+- Always use the active working directory (${activeDir}) as your base for relative paths.
+- Use <terminal> for shell commands, <write> to create files, <edit> to modify files, <cat> to read files.
+- Chain multiple tool calls sequentially. After each tool result, evaluate and continue automatically.
+- Handle errors gracefully: if a command fails, try an alternative approach and report what happened.
+- Track a mental # Todos list: list what's done [✓] and what's next [·] after each step.
+- OS: ${osName} (${platform}). All commands must be compatible with this OS.
+${toolDocs}
+`;
+
+  const baseSystemPrompt = activeMode === 'build' ? buildPrompt : planPrompt;
 
   const finalMessages = [
     { role: 'system' as const, content: baseSystemPrompt },
@@ -223,31 +203,8 @@ let restored = false;
 const restoreScreen = () => {
   if (restored) return;
   restored = true;
+  // Restore primary screen buffer cleanly — no chat history dump
   process.stdout.write('\u001b[?1049l');
-
-  // Print full session history to stdout so the user can scroll/copy natively
-  try {
-    const dbHistory = getSessionHistory(activeSessionId);
-    if (dbHistory.length > 0) {
-      console.log(chalk.gray('\n=== Session Chat History (Preserved for Copy/Paste) ===\n'));
-      for (const msg of dbHistory) {
-        let roleLabel = '';
-        if (msg.role === 'user') {
-          roleLabel = chalk.cyan.bold('👤 USER:');
-        } else if (msg.role === 'system') {
-          roleLabel = chalk.yellow.bold('⚙️ SYSTEM:');
-        } else {
-          roleLabel = chalk.white.bold('🤖 ASSISTANT:');
-        }
-        console.log(roleLabel);
-        console.log(renderMarkdown(msg.content));
-        console.log('');
-      }
-      console.log(chalk.gray('=======================================================\n'));
-    }
-  } catch (err) {
-    // Silently ignore if DB or rendering fails on exit
-  }
 };
 
 process.on('exit', restoreScreen);
