@@ -9,6 +9,8 @@ export interface ThemeColors {
   background: (text: string) => string;
   text: (text: string) => string;
   muted: (text: string) => string;
+  inkBorderColor: string;
+  inkBorderStyle: 'single' | 'double' | 'round' | 'bold' | 'classic';
 }
 
 export const themes: Record<string, ThemeColors> = {
@@ -21,6 +23,8 @@ export const themes: Record<string, ThemeColors> = {
     background: chalk.bgBlack,
     text: chalk.white,
     muted: chalk.gray,
+    inkBorderColor: 'cyan',
+    inkBorderStyle: 'single',
   },
   light: {
     primary: chalk.blue,
@@ -31,6 +35,8 @@ export const themes: Record<string, ThemeColors> = {
     background: chalk.bgWhite,
     text: chalk.black,
     muted: chalk.gray,
+    inkBorderColor: 'blue',
+    inkBorderStyle: 'single',
   },
   cyberpunk: {
     primary: chalk.yellow, // bright yellow
@@ -41,6 +47,8 @@ export const themes: Record<string, ThemeColors> = {
     background: chalk.bgBlack,
     text: chalk.green, // matrix green
     muted: chalk.magenta,
+    inkBorderColor: 'magenta',
+    inkBorderStyle: 'double',
   },
   minimal: {
     primary: chalk.bold,
@@ -51,6 +59,8 @@ export const themes: Record<string, ThemeColors> = {
     background: chalk.black,
     text: chalk.white,
     muted: chalk.dim,
+    inkBorderColor: 'gray',
+    inkBorderStyle: 'classic',
   },
   monochrome: {
     primary: chalk.white,
@@ -61,5 +71,7 @@ export const themes: Record<string, ThemeColors> = {
     background: chalk.bgBlack,
     text: chalk.white,
     muted: chalk.white,
+    inkBorderColor: 'white',
+    inkBorderStyle: 'single',
   },
 };

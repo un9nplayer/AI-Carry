@@ -93,6 +93,37 @@ file path here
 search query here
 </grep>
 
+- File writer:
+<write>
+{
+  "path": "file_path_relative_to_active_dir",
+  "content": "full_file_content"
+}
+</write>
+
+- File exact search-and-replace editor:
+<edit>
+{
+  "path": "file_path_relative_to_active_dir",
+  "target": "exact_code_block_to_replace",
+  "replacement": "new_code_block_to_substitute"
+}
+</edit>
+
+- Web page fetcher (extracts text):
+<webfetch>
+{
+  "url": "http_or_https_url"
+}
+</webfetch>
+
+- Web search engine query:
+<websearch>
+{
+  "query": "search_terms_or_question"
+}
+</websearch>
+
 Current Operating System: ${osName} (Platform: ${platform})
 Current Mode: ${activeMode.toUpperCase()}
 Current Tool Permission Level: ${config.toolPermissions.toUpperCase()}
@@ -184,6 +215,7 @@ const ui = render(
     onDeleteSession: async (id: string) => {
       deleteSession(id);
     },
+    initialTheme: getConfig().theme,
   })
 );
 

@@ -2,6 +2,10 @@ import type { Tool } from './types.js';
 import { TerminalTool } from './builtin/terminal.js';
 import { CatTool } from './builtin/cat.js';
 import { GrepTool } from './builtin/grep.js';
+import { WriteTool } from './builtin/write.js';
+import { EditTool } from './builtin/edit.js';
+import { WebFetchTool } from './builtin/webfetch.js';
+import { WebSearchTool } from './builtin/websearch.js';
 
 export class ToolRegistry {
   private static instance: ToolRegistry | null = null;
@@ -12,6 +16,10 @@ export class ToolRegistry {
     this.register(new TerminalTool());
     this.register(new CatTool());
     this.register(new GrepTool());
+    this.register(new WriteTool());
+    this.register(new EditTool());
+    this.register(new WebFetchTool());
+    this.register(new WebSearchTool());
   }
 
   public static getInstance(): ToolRegistry {

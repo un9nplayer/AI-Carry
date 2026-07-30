@@ -29,3 +29,4 @@ test-temp/
 
 # Exclude embedded repos
 claude-code/
+opencode/

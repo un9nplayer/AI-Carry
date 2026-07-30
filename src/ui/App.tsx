@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import { StatusBar } from './StatusBar.js';
 import { renderMarkdown } from './markdown.js';
+import { themes } from './themes.js';
 import chalk from 'chalk';
 
 export interface ChatMessage {
@@ -18,6 +19,7 @@ interface AppProps {
   onModeChange?: (mode: 'plan' | 'build') => void;
   onListSessions?: () => Promise<{ id: string; title: string; model: string; created_at: number }[]>;
   onDeleteSession?: (id: string) => Promise<void>;
+  initialTheme?: string;
 }
 
 const FALLBACK_MODELS = [
@@ -59,7 +61,7 @@ function findWordBoundaryRight(text: string, cursor: number): number {
   return i;
 }
 
-export function App({ modelName, initialHistory, onCommand, onModelChange, onListModels, onModeChange, onListSessions, onDeleteSession }: AppProps) {
+export function App({ modelName, initialHistory, onCommand, onModelChange, onListModels, onModeChange, onListSessions, onDeleteSession, initialTheme }: AppProps) {
   const [history, setHistory] = useState<ChatMessage[]>(initialHistory);
   const [inputBuffer, setInputBuffer] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -68,6 +70,8 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   const [mode, setMode] = useState<'plan' | 'build'>('plan');
   const [cost, setCost] = useState(0.0);
   const [contextPercent, setContextPercent] = useState(0);
+  const [theme, setTheme] = useState(initialTheme || 'dark');
+  const colors = themes[theme] || themes.dark;
   const { exit } = useApp();
 
   const inputBufferRef = React.useRef(inputBuffer);
@@ -601,6 +605,15 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
           setActiveModel(response.payload);
         }
 
+        if (response.action === 'config-update') {
+          if (response.payload.key === 'theme') {
+            setTheme(response.payload.value);
+          }
+          if (response.payload.key === 'defaultModel') {
+            setActiveModel(response.payload.value);
+          }
+        }
+
         if (response.action === 'select-model') {
           openModelSelector();
         }
@@ -697,23 +710,23 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
 
   return (
     <Box flexDirection="column" paddingX={1} width="100%" height={terminalHeight}>
-      <StatusBar modelName={activeModel} mode={mode} tokenPercent={contextPercent} cost={cost} />
+      <StatusBar modelName={activeModel} mode={mode} tokenPercent={contextPercent} cost={cost} theme={theme} />
       
       {/* Top Divider */}
-      <Text color="gray">╭{dividerLine}╮</Text>
+      <Text>{colors.muted(`╭${dividerLine}╮`)}</Text>
 
       {/* Scrollable history viewport */}
       {showModelSelector ? (
         <Box flexDirection="column" paddingX={1} flexGrow={1}>
-          <Text color="cyan" bold underline>Select a Model (Use Up/Down Arrow & Enter to confirm)</Text>
+          <Text>{colors.primary('Select a Model (Use Up/Down Arrow & Enter to confirm)')}</Text>
           
           {isFetchingModels ? (
             <Box marginTop={1}>
-              <Text color="yellow">⠋ Fetching live models from configured APIs...</Text>
+              <Text>{colors.warning('⠋ Fetching live models from configured APIs...')}</Text>
             </Box>
           ) : (
             <Box flexDirection="column" marginTop={1}>
-              {startIdx > 0 && <Text color="gray">  ▲ ... ({startIdx} more models above) ...</Text>}
+              {startIdx > 0 && <Text>{colors.muted(`  ▲ ... (${startIdx} more models above) ...`)}</Text>}
               
               {slicedModels.map((model, idx) => {
                 const actualIdx = startIdx + idx;
@@ -730,38 +743,44 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
                   label += ' (Active)';
                 }
                 
+                const styledLabel = isFocused 
+                  ? colors.primary(prefix + label) 
+                  : isActive 
+                    ? colors.warning(prefix + label) 
+                    : colors.text(prefix + label);
+
                 return (
-                  <Text key={model} color={isFocused ? 'cyan' : isActive ? 'yellow' : 'white'} bold={isFocused}>
-                    {prefix}{label}
+                  <Text key={model} bold={isFocused}>
+                    {styledLabel}
                   </Text>
                 );
               })}
 
               {startIdx + maxVisibleModels < availableModels.length && (
-                <Text color="gray">  ▼ ... ({availableModels.length - (startIdx + maxVisibleModels)} more models below) ...</Text>
+                <Text>{colors.muted(`  ▼ ... (${availableModels.length - (startIdx + maxVisibleModels)} more models below) ...`)}</Text>
               )}
             </Box>
           )}
           
           <Box marginTop={1}>
-            <Text color="gray">Press Esc to cancel</Text>
+            <Text>{colors.muted('Press Esc to cancel')}</Text>
           </Box>
         </Box>
       ) : showChatHistorySelector ? (
         <Box flexDirection="column" paddingX={1} flexGrow={1}>
-          <Text color="yellow" bold underline>Chat Sessions History (Enter: Load | Del/D: Delete | Esc: Exit)</Text>
+          <Text>{colors.warning('Chat Sessions History (Enter: Load | Del/D: Delete | Esc: Exit)')}</Text>
           
           {isFetchingSessions ? (
             <Box marginTop={1}>
-              <Text color="yellow">⠋ Fetching previous sessions...</Text>
+              <Text>{colors.warning('⠋ Fetching previous sessions...')}</Text>
             </Box>
           ) : sessionsList.length === 0 ? (
             <Box marginTop={1}>
-              <Text color="gray">No previous chat sessions found.</Text>
+              <Text>{colors.muted('No previous chat sessions found.')}</Text>
             </Box>
           ) : (
             <Box flexDirection="column" marginTop={1}>
-              {sessionStartIdx > 0 && <Text color="gray">  ▲ ... ({sessionStartIdx} more sessions above) ...</Text>}
+              {sessionStartIdx > 0 && <Text>{colors.muted(`  ▲ ... (${sessionStartIdx} more sessions above) ...`)}</Text>}
               
               {slicedSessions.map((session, idx) => {
                 const actualIdx = sessionStartIdx + idx;
@@ -775,21 +794,25 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
                 const dateStr = new Date(session.created_at).toLocaleString();
                 const sessionLabel = `"${session.title}" [${session.model}] (${dateStr})`;
                 
+                const styledLabel = isFocused 
+                  ? colors.warning(prefix + sessionLabel) 
+                  : colors.text(prefix + sessionLabel);
+
                 return (
-                  <Text key={session.id} color={isFocused ? 'yellow' : 'white'} bold={isFocused}>
-                    {prefix}{sessionLabel}
+                  <Text key={session.id} bold={isFocused}>
+                    {styledLabel}
                   </Text>
                 );
               })}
 
               {sessionStartIdx + maxVisibleSessions < sessionsList.length && (
-                <Text color="gray">  ▼ ... ({sessionsList.length - (sessionStartIdx + maxVisibleSessions)} more sessions below) ...</Text>
+                <Text>{colors.muted(`  ▼ ... (${sessionsList.length - (sessionStartIdx + maxVisibleSessions)} more sessions below) ...`)}</Text>
               )}
             </Box>
           )}
           
           <Box marginTop={1}>
-            <Text color="gray">Press Esc to cancel</Text>
+            <Text>{colors.muted('Press Esc to cancel')}</Text>
           </Box>
         </Box>
       ) : (
@@ -802,18 +825,18 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
           {isGenerating && (
             <Box flexDirection="column" marginTop={1}>
               <Box gap={1}>
-                <Text color="yellow" bold>{SPINNER_FRAMES[spinnerFrame]}</Text>
-                <Text color="yellow" bold>Model is thinking... ({elapsedTime}s elapsed)</Text>
-                <Text color="gray">[Press T to toggle details]</Text>
+                <Text>{colors.warning(SPINNER_FRAMES[spinnerFrame])}</Text>
+                <Text>{colors.warning(`Model is thinking... (${elapsedTime}s elapsed)`)}</Text>
+                <Text>{colors.muted('[Press T to toggle details]')}</Text>
               </Box>
 
               {showThinkingDetails && (
-                <Box flexDirection="column" borderStyle="single" borderColor="yellow" paddingX={1} marginTop={1}>
-                  <Text color="yellow" bold>Thinking Details Log</Text>
-                  <Text color="gray">  • Active Model: {activeModel}</Text>
-                  <Text color="gray">  • Provider: {providerName}</Text>
-                  <Text color="gray">  • Mode: {mode.toUpperCase()}</Text>
-                  <Text color="gray">  • Status: Querying provider endpoint & processing tokens...</Text>
+                <Box flexDirection="column" borderStyle={colors.inkBorderStyle} borderColor={colors.inkBorderColor} paddingX={1} marginTop={1}>
+                  <Text>{colors.warning('Thinking Details Log')}</Text>
+                  <Text>{colors.muted(`  • Active Model: ${activeModel}`)}</Text>
+                  <Text>{colors.muted(`  • Provider: ${providerName}`)}</Text>
+                  <Text>{colors.muted(`  • Mode: ${mode.toUpperCase()}`)}</Text>
+                  <Text>{colors.muted('  • Status: Querying provider endpoint & processing tokens...')}</Text>
                 </Box>
               )}
             </Box>
@@ -822,12 +845,12 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
       )}
 
       {/* Bottom Divider */}
-      <Text color="gray">╰{dividerLine}╯</Text>
+      <Text>{colors.muted(`╰${dividerLine}╯`)}</Text>
 
       {/* Navigation hints */}
       <Box paddingX={1} marginBottom={1}>
-        <Text color="gray">
-          {showModelSelector 
+        <Text>{colors.muted(
+          showModelSelector 
             ? isFetchingModels 
               ? 'Esc: Cancel' 
               : 'Arrow keys: Navigate | Enter: Select | Esc: Back'
@@ -835,15 +858,15 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
               ? 'Arrow keys: Navigate | Enter: Load | Del: Delete | Esc: Close'
               : isGenerating 
                 ? 'T: Toggle Thinking Details | Esc: Exit'
-                : 'Tab: Toggle Mode | Ctrl+M: Select Model | Ctrl+H: History | Ctrl+P/N: Cmd History | Ctrl+Z/Y: Undo/Redo'}
-        </Text>
+                : 'Tab: Toggle Mode | Ctrl+M: Select Model | Ctrl+H: History | Ctrl+P/N: Cmd History | Ctrl+Z/Y: Undo/Redo'
+        )}</Text>
       </Box>
 
       {/* Input row with native shell cursor feel */}
       <Box gap={1}>
-        <Text color="cyan">&gt;</Text>
+        <Text>{colors.primary('>')}</Text>
         {isGenerating ? (
-          <Text color="gray">Generating...</Text>
+          <Text>{colors.muted('Generating...')}</Text>
         ) : (
           <Box gap={0}>
             <Text>{beforeCursor}</Text>

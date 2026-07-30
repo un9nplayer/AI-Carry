@@ -11,7 +11,7 @@ import {
 export interface CommandResult {
   handled: boolean;
   output: string;
-  action?: 'exit' | 'new-chat' | 'load-chat' | 'clear' | 'mode-change' | 'select-model' | 'model-change';
+  action?: 'exit' | 'new-chat' | 'load-chat' | 'clear' | 'mode-change' | 'select-model' | 'model-change' | 'config-update';
   payload?: any;
 }
 
@@ -163,7 +163,12 @@ export async function executeSlashCommand(
         if (!isNaN(Number(val))) typedVal = Number(val);
 
         updateConfig({ [key]: typedVal });
-        return { handled: true, output: `Updated config key "${key}" to: ${val}` };
+        return {
+          handled: true,
+          output: `Updated config key "${key}" to: ${val}`,
+          action: 'config-update',
+          payload: { key, value: typedVal }
+        };
       } catch (error: any) {
         return { handled: true, output: `Failed to update config: ${error.message || String(error)}` };
       }
