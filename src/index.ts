@@ -62,115 +62,169 @@ async function handleCommand(
   // 2. Append user message to database
   addMessageToSession(activeSessionId, 'user', input);
 
-  // 3. Get full conversation history to feed LLM context
-  const dbHistory = getSessionHistory(activeSessionId);
-  const mappedMessages = dbHistory.map((m) => ({
-    role: (m.role === 'assistant' || m.role === 'system' ? m.role : 'user') as 'user' | 'assistant' | 'system',
-    content: m.content,
-  }));
-
-  const config = getConfig();
   const platform = os.platform();
   const osName = platform === 'win32' ? 'Windows' : platform === 'darwin' ? 'macOS' : 'Linux';
-
-  // Active working directory — always keep the model informed
   const activeDir = TerminalTool.activeCwd || process.cwd();
 
+  // ── System Prompts ───────────────────────────────────────────────────────────
+
   const toolDocs = `
-Available XML Tools (use ONLY in BUILD mode):
+XML Tool Reference (emit these tags to call tools — no quotes, no escaping):
 
-<terminal>\ncommand here\n</terminal>
-<cat>\nfile path\n</cat>
-<grep>\nsearch string\n</grep>
-<write>\n{"path": "relative/path", "content": "full file content"}\n</write>
-<edit>\n{"path": "relative/path", "target": "exact block to replace", "replacement": "new block"}\n</edit>
-<webfetch>\n{"url": "https://..."}\n</webfetch>
-<websearch>\n{"query": "..."}\n</websearch>
+<terminal>
+COMMAND
+</terminal>
+  → Runs COMMAND in the shell. Use for: mkdir, ls, cd, apt, go install, subfinder, amass, etc.
+
+<cat>
+/path/to/file
+</cat>
+  → Read a file's content.
+
+<write>
+{"path": "relative/path/file.txt", "content": "full content here"}
+</write>
+  → Create or overwrite a file.
+
+<edit>
+{"path": "relative/path/file.txt", "target": "exact text to replace", "replacement": "new text"}
+</edit>
+  → Precise in-place edit.
+
+<webfetch>
+{"url": "https://example.com"}
+</webfetch>
+  → Fetch a URL and return its text.
+
+<websearch>
+{"query": "search terms"}
+</websearch>
+  → Web search.
 `;
 
-  const planPrompt = `You are AI Carry, a terminal-first agentic AI for software development and offensive security.
+  const buildPrompt = `You are AI Carry, an autonomous terminal agent. Current mode: BUILD (execute immediately).
 
-You are currently in PLAN mode (read-only). In this mode:
-- Think carefully and ask clarifying questions before you propose any plan.
-- Identify ambiguities: ask the user what OS, language, tool constraints, or scope they have in mind.
-- Once you have enough information, write a clear numbered plan with expected commands and outcomes.
-- Do NOT output any XML tool tags in Plan mode. Explain what you *would* do, not do it.
-- At the end of your plan, tell the user to switch to Build mode (Tab key) to execute.
+CRITICAL RULES — follow these without exception:
+1. OUTPUT XML TOOL TAGS NOW. Do not ask questions. Do not write plans. Do not output JSON. Just act.
+2. Start your response with the FIRST tool call. Example for "create folder foo":
+   <terminal>
+   mkdir -p foo
+   </terminal>
+3. After each tool result you receive, output the NEXT tool call immediately.
+4. Keep going until the full task is complete. Do not stop after one tool.
+5. When ALL steps are done, write a brief "Done." summary.
+6. If a tool fails, diagnose inline and retry with a different command.
+7. Never output a JSON todo list. Never say "I would" or "I'll". Just run the tools.
 
-Current Working Directory: ${activeDir}
 OS: ${osName} (${platform})
-`;
+Working Directory: ${activeDir}
+Shell: ${platform === 'win32' ? 'PowerShell' : 'bash'}
 
-  const buildPrompt = `You are AI Carry, a terminal-first agentic AI for software development and offensive security.
+${toolDocs}`;
 
-You are currently in BUILD mode (execution). In this mode:
-- Execute tasks immediately using XML tool calls. Do not ask for confirmation unless the action is destructive.
-- Always use the active working directory (${activeDir}) as your base for relative paths.
-- Use <terminal> for shell commands, <write> to create files, <edit> to modify files, <cat> to read files.
-- Chain multiple tool calls sequentially. After each tool result, evaluate and continue automatically.
-- Handle errors gracefully: if a command fails, try an alternative approach and report what happened.
-- Track a mental # Todos list: list what's done [✓] and what's next [·] after each step.
-- OS: ${osName} (${platform}). All commands must be compatible with this OS.
-${toolDocs}
-`;
+  const planPrompt = `You are AI Carry, a terminal-first AI assistant. Current mode: PLAN (read-only).
 
-  // Load project context from .aicarry/AGENTS.md and .aicarry/CONTEXT.md
+In PLAN mode:
+- Ask 1-3 targeted clarifying questions if genuinely needed.
+- Once you have enough context, write a numbered plan with exact commands.
+- Do NOT output any XML tool tags — describe what you would run, don't run it.
+- End by reminding the user: press Tab to switch to Build mode, then type "go" or "execute".
+
+OS: ${osName} (${platform})
+Working Directory: ${activeDir}`;
+
+  // Load project context (.aicarry/AGENTS.md + CONTEXT.md)
   const projectContext = loadProjectContext(activeDir);
   const projectContextBlock = projectContext
-    ? `\n\n## Project Instructions\n\n${projectContext}`
+    ? `\n\n---\n${projectContext}`
     : '';
 
   const baseSystemPrompt = (activeMode === 'build' ? buildPrompt : planPrompt) + projectContextBlock;
 
-  const finalMessages = [
-    { role: 'system' as const, content: baseSystemPrompt },
-    ...mappedMessages,
-  ];
+  // ── Agentic Execution Loop ───────────────────────────────────────────────────
 
   try {
-    // 4. Generate AI response using streaming API
-    let outputText = '';
-    const generator = modelManager.stream(finalMessages);
+    const MAX_ITERATIONS = 10;
+    let fullOutput = '';
+    let iteration = 0;
 
-    for await (const chunk of generator) {
-      if (chunk.content) {
-        outputText += chunk.content;
-        if (onChunk) {
-          onChunk(chunk.content);
+    // Build initial message list from DB history
+    const getMessages = () => {
+      const dbHistory = getSessionHistory(activeSessionId);
+      return [
+        { role: 'system' as const, content: baseSystemPrompt },
+        ...dbHistory.map((m) => ({
+          role: (m.role === 'assistant' || m.role === 'system' ? m.role : 'user') as 'user' | 'assistant' | 'system',
+          content: m.content,
+        })),
+      ];
+    };
+
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
+
+      // Stream model response
+      let iterationText = '';
+      const messages = getMessages();
+      const generator = modelManager.stream(messages);
+
+      for await (const chunk of generator) {
+        if (chunk.content) {
+          iterationText += chunk.content;
+          if (onChunk) onChunk(chunk.content);
         }
+      }
+
+      if (!iterationText.trim()) break;
+
+      // In Build mode: detect and execute tool calls
+      if (activeMode === 'build') {
+        const toolCalls = parseToolCalls(iterationText);
+
+        if (toolCalls.length === 0) {
+          // No tool calls found — save this turn and stop
+          fullOutput += iterationText;
+          addMessageToSession(activeSessionId, 'assistant', iterationText, 0, 0, 0);
+          break;
+        }
+
+        // Execute tools and collect output
+        const toolOutput = await executeToolCalls(toolCalls, async () => true);
+        const toolResultBlock = `\n\n${toolOutput}`;
+
+        // Stream the tool results back to the UI
+        if (onChunk) onChunk(toolResultBlock);
+
+        // Save this iteration: model output + tool results as one assistant turn
+        const combinedTurn = iterationText + toolResultBlock;
+        fullOutput += combinedTurn;
+        addMessageToSession(activeSessionId, 'assistant', combinedTurn, 0, 0, 0);
+
+        // If the model's last text (after tool calls) looks like it's done, stop
+        const textAfterLastTag = iterationText.replace(/<\w+>[\s\S]*?<\/\w+>/g, '').trim();
+        const isDone =
+          textAfterLastTag.toLowerCase().includes('done') ||
+          textAfterLastTag.toLowerCase().includes('complete') ||
+          textAfterLastTag.toLowerCase().includes('finished') ||
+          textAfterLastTag.toLowerCase().includes('all steps');
+
+        if (isDone) break;
+
+        // Otherwise continue — the model will see tool results and keep going
+        continue;
+      } else {
+        // Plan mode: single turn, no loop
+        fullOutput += iterationText;
+        addMessageToSession(activeSessionId, 'assistant', iterationText, 0, 0, 0);
+        break;
       }
     }
 
-    // 5. If Build Mode, parse and run XML tool calls
-    if (activeMode === 'build') {
-      const toolCalls = parseToolCalls(outputText);
-      if (toolCalls.length > 0) {
-        // Confirmation callback logic for dangerous actions
-        const confirmExecution = async (toolName: string, args: Record<string, any>) => {
-          // Automatic approve for automated tool runs in building block (or customize if needed)
-          return true;
-        };
-        const toolOutput = await executeToolCalls(toolCalls, confirmExecution);
-        outputText += `\n\n${toolOutput}`;
-        if (onChunk) {
-          onChunk(`\n\n${toolOutput}`);
-        }
-      }
-    }
-
-    // 6. Save AI output to session history database
-    addMessageToSession(
-      activeSessionId,
-      'assistant',
-      outputText,
-      0, // tokensIn and tokensOut can be estimated or calculated
-      0,
-      0
-    );
-
-    return { output: outputText };
+    return { output: fullOutput };
   } catch (error: any) {
-    return { output: `Error generating response: ${error.message || String(error)}` };
+    const errMsg = `Error: ${error.message || String(error)}`;
+    addMessageToSession(activeSessionId, 'assistant', errMsg, 0, 0, 0);
+    return { output: errMsg };
   }
 }
 
