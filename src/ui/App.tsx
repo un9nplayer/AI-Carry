@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import { StatusBar } from './StatusBar.js';
 import { renderMarkdown } from './markdown.js';
 import { themes } from './themes.js';
+import { TerminalTool } from '../tools/builtin/terminal.js';
 import chalk from 'chalk';
 
 export interface ChatMessage {
@@ -176,8 +176,8 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   }
 
   const chatLinesCount = chatLines.length;
-  // Account for status bar (3), margins, navigation text, and input buffer row
-  const viewportHeight = Math.max(5, terminalHeight - 8);
+  // Account for bottom prompt box (3), mode bar (1), footer (1), and padding
+  const viewportHeight = Math.max(5, terminalHeight - 6);
 
   // Dynamic viewport adjustment when panels are shown during generation to keep box height strictly fixed
   let panelsHeight = 0;
@@ -699,156 +699,232 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   sessionStartIdx = Math.max(0, sessionStartIdx);
   const slicedSessions = sessionsList.slice(sessionStartIdx, sessionStartIdx + maxVisibleSessions);
 
-  // Generate top/bottom divider lines based on columns
-  const cols = process.stdout.columns || 80;
-  const dividerLine = '─'.repeat(cols - 4);
-
   // Render input line with block cursor
   const beforeCursor = inputBuffer.slice(0, cursorPosition);
   const cursorChar = inputBuffer[cursorPosition] || ' ';
   const afterCursor = inputBuffer.slice(cursorPosition + 1);
 
+  const activeDir = TerminalTool.activeCwd || process.cwd();
+  
+  // Format sidebar token string
+  const totalTokens = 1000000;
+  const usedTokens = Math.round(totalTokens * (contextPercent / 100));
+  const formatNumber = (num: number) => num.toString().replace(/\B(?=(\d{3})+(?!\n))/g, ",");
+
   return (
     <Box flexDirection="column" paddingX={1} width="100%" height={terminalHeight}>
-      <StatusBar modelName={activeModel} mode={mode} tokenPercent={contextPercent} cost={cost} theme={theme} />
-      
-      {/* Top Divider */}
-      <Text>{colors.muted(`╭${dividerLine}╮`)}</Text>
-
-      {/* Scrollable history viewport */}
-      {showModelSelector ? (
-        <Box flexDirection="column" paddingX={1} flexGrow={1}>
-          <Text>{colors.primary('Select a Model (Use Up/Down Arrow & Enter to confirm)')}</Text>
+      {/* Main Area: Splits into Left Chat and Right Sidebar */}
+      <Box flexDirection="row" flexGrow={1} flexShrink={1}>
+        
+        {/* Left Column: Chat History & Input Prompt */}
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} marginRight={1}>
           
-          {isFetchingModels ? (
-            <Box marginTop={1}>
-              <Text>{colors.warning('⠋ Fetching live models from configured APIs...')}</Text>
-            </Box>
-          ) : (
-            <Box flexDirection="column" marginTop={1}>
-              {startIdx > 0 && <Text>{colors.muted(`  ▲ ... (${startIdx} more models above) ...`)}</Text>}
-              
-              {slicedModels.map((model, idx) => {
-                const actualIdx = startIdx + idx;
-                const isFocused = actualIdx === focusedModelIndex;
-                const isActive = model === activeModel;
+          {/* Scrollable history viewport */}
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            {showModelSelector ? (
+              <Box flexDirection="column" paddingX={1} flexGrow={1}>
+                <Text>{colors.primary('Select a Model (Use Up/Down Arrow & Enter to confirm)')}</Text>
                 
-                let prefix = '  ';
-                if (isFocused) {
-                  prefix = '● ';
-                }
+                {isFetchingModels ? (
+                  <Box marginTop={1}>
+                    <Text>{colors.warning('⠋ Fetching live models from configured APIs...')}</Text>
+                  </Box>
+                ) : (
+                  <Box flexDirection="column" marginTop={1}>
+                    {startIdx > 0 && <Text>{colors.muted(`  ▲ ... (${startIdx} more models above) ...`)}</Text>}
+                    
+                    {slicedModels.map((model, idx) => {
+                      const actualIdx = startIdx + idx;
+                      const isFocused = actualIdx === focusedModelIndex;
+                      const isActive = model === activeModel;
+                      
+                      let prefix = '  ';
+                      if (isFocused) {
+                        prefix = '● ';
+                      }
+                      
+                      let label = model;
+                      if (isActive) {
+                        label += ' (Active)';
+                      }
+                      
+                      const styledLabel = isFocused 
+                        ? colors.primary(prefix + label) 
+                        : isActive 
+                          ? colors.warning(prefix + label) 
+                          : colors.text(prefix + label);
+
+                      return (
+                        <Text key={model} bold={isFocused}>
+                          {styledLabel}
+                        </Text>
+                      );
+                    })}
+
+                    {startIdx + maxVisibleModels < availableModels.length && (
+                      <Text>{colors.muted(`  ▼ ... (${availableModels.length - (startIdx + maxVisibleModels)} more models below) ...`)}</Text>
+                    )}
+                  </Box>
+                )}
                 
-                let label = model;
-                if (isActive) {
-                  label += ' (Active)';
-                }
-                
-                const styledLabel = isFocused 
-                  ? colors.primary(prefix + label) 
-                  : isActive 
-                    ? colors.warning(prefix + label) 
-                    : colors.text(prefix + label);
-
-                return (
-                  <Text key={model} bold={isFocused}>
-                    {styledLabel}
-                  </Text>
-                );
-              })}
-
-              {startIdx + maxVisibleModels < availableModels.length && (
-                <Text>{colors.muted(`  ▼ ... (${availableModels.length - (startIdx + maxVisibleModels)} more models below) ...`)}</Text>
-              )}
-            </Box>
-          )}
-          
-          <Box marginTop={1}>
-            <Text>{colors.muted('Press Esc to cancel')}</Text>
-          </Box>
-        </Box>
-      ) : showChatHistorySelector ? (
-        <Box flexDirection="column" paddingX={1} flexGrow={1}>
-          <Text>{colors.warning('Chat Sessions History (Enter: Load | Del/D: Delete | Esc: Exit)')}</Text>
-          
-          {isFetchingSessions ? (
-            <Box marginTop={1}>
-              <Text>{colors.warning('⠋ Fetching previous sessions...')}</Text>
-            </Box>
-          ) : sessionsList.length === 0 ? (
-            <Box marginTop={1}>
-              <Text>{colors.muted('No previous chat sessions found.')}</Text>
-            </Box>
-          ) : (
-            <Box flexDirection="column" marginTop={1}>
-              {sessionStartIdx > 0 && <Text>{colors.muted(`  ▲ ... (${sessionStartIdx} more sessions above) ...`)}</Text>}
-              
-              {slicedSessions.map((session, idx) => {
-                const actualIdx = sessionStartIdx + idx;
-                const isFocused = actualIdx === focusedSessionIndex;
-                
-                let prefix = '  ';
-                if (isFocused) {
-                  prefix = '● ';
-                }
-                
-                const dateStr = new Date(session.created_at).toLocaleString();
-                const sessionLabel = `"${session.title}" [${session.model}] (${dateStr})`;
-                
-                const styledLabel = isFocused 
-                  ? colors.warning(prefix + sessionLabel) 
-                  : colors.text(prefix + sessionLabel);
-
-                return (
-                  <Text key={session.id} bold={isFocused}>
-                    {styledLabel}
-                  </Text>
-                );
-              })}
-
-              {sessionStartIdx + maxVisibleSessions < sessionsList.length && (
-                <Text>{colors.muted(`  ▼ ... (${sessionsList.length - (sessionStartIdx + maxVisibleSessions)} more sessions below) ...`)}</Text>
-              )}
-            </Box>
-          )}
-          
-          <Box marginTop={1}>
-            <Text>{colors.muted('Press Esc to cancel')}</Text>
-          </Box>
-        </Box>
-      ) : (
-        <Box flexDirection="column" paddingX={1} flexGrow={1}>
-          {visibleLines.map((line, idx) => (
-            <Text key={idx}>{line}</Text>
-          ))}
-
-          {/* Animated Thinking & Expandable Details Panel */}
-          {isGenerating && (
-            <Box flexDirection="column" marginTop={1}>
-              <Box gap={1}>
-                <Text>{colors.warning(SPINNER_FRAMES[spinnerFrame])}</Text>
-                <Text>{colors.warning(`Model is thinking... (${elapsedTime}s elapsed)`)}</Text>
-                <Text>{colors.muted('[Press T to toggle details]')}</Text>
-              </Box>
-
-              {showThinkingDetails && (
-                <Box flexDirection="column" borderStyle={colors.inkBorderStyle} borderColor={colors.inkBorderColor} paddingX={1} marginTop={1}>
-                  <Text>{colors.warning('Thinking Details Log')}</Text>
-                  <Text>{colors.muted(`  • Active Model: ${activeModel}`)}</Text>
-                  <Text>{colors.muted(`  • Provider: ${providerName}`)}</Text>
-                  <Text>{colors.muted(`  • Mode: ${mode.toUpperCase()}`)}</Text>
-                  <Text>{colors.muted('  • Status: Querying provider endpoint & processing tokens...')}</Text>
+                <Box marginTop={1}>
+                  <Text>{colors.muted('Press Esc to cancel')}</Text>
                 </Box>
-              )}
-            </Box>
-          )}
+              </Box>
+            ) : showChatHistorySelector ? (
+              <Box flexDirection="column" paddingX={1} flexGrow={1}>
+                <Text>{colors.warning('Chat Sessions History (Enter: Load | Del/D: Delete | Esc: Exit)')}</Text>
+                
+                {isFetchingSessions ? (
+                  <Box marginTop={1}>
+                    <Text>{colors.warning('⠋ Fetching previous sessions...')}</Text>
+                  </Box>
+                ) : sessionsList.length === 0 ? (
+                  <Box marginTop={1}>
+                    <Text>{colors.muted('No previous chat sessions found.')}</Text>
+                  </Box>
+                ) : (
+                  <Box flexDirection="column" marginTop={1}>
+                    {sessionStartIdx > 0 && <Text>{colors.muted(`  ▲ ... (${sessionStartIdx} more sessions above) ...`)}</Text>}
+                    
+                    {slicedSessions.map((session, idx) => {
+                      const actualIdx = sessionStartIdx + idx;
+                      const isFocused = actualIdx === focusedSessionIndex;
+                      
+                      let prefix = '  ';
+                      if (isFocused) {
+                        prefix = '● ';
+                      }
+                      
+                      const dateStr = new Date(session.created_at).toLocaleString();
+                      const sessionLabel = `"${session.title}" [${session.model}] (${dateStr})`;
+                      
+                      const styledLabel = isFocused 
+                        ? colors.warning(prefix + sessionLabel) 
+                        : colors.text(prefix + sessionLabel);
+
+                      return (
+                        <Text key={session.id} bold={isFocused}>
+                          {styledLabel}
+                        </Text>
+                      );
+                    })}
+
+                    {sessionStartIdx + maxVisibleSessions < sessionsList.length && (
+                      <Text>{colors.muted(`  ▼ ... (${sessionsList.length - (sessionStartIdx + maxVisibleSessions)} more sessions below) ...`)}</Text>
+                    )}
+                  </Box>
+                )}
+                
+                <Box marginTop={1}>
+                  <Text>{colors.muted('Press Esc to cancel')}</Text>
+                </Box>
+              </Box>
+            ) : (
+              <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+                {visibleLines.map((line, idx) => (
+                  <Text key={idx}>{line}</Text>
+                ))}
+
+                {/* Animated Thinking & Expandable Details Panel */}
+                {isGenerating && (
+                  <Box flexDirection="column" marginTop={1}>
+                    <Box gap={1}>
+                      <Text>{colors.warning(SPINNER_FRAMES[spinnerFrame])}</Text>
+                      <Text>{colors.warning(`Model is thinking... (${elapsedTime}s elapsed)`)}</Text>
+                      <Text>{colors.muted('[Press T to toggle details]')}</Text>
+                    </Box>
+
+                    {showThinkingDetails && (
+                      <Box flexDirection="column" borderStyle={colors.inkBorderStyle} borderColor={colors.inkBorderColor} paddingX={1} marginTop={1}>
+                        <Text>{colors.warning('Thinking Details Log')}</Text>
+                        <Text>{colors.muted(`  • Active Model: ${activeModel}`)}</Text>
+                        <Text>{colors.muted(`  • Provider: ${providerName}`)}</Text>
+                        <Text>{colors.muted(`  • Mode: ${mode.toUpperCase()}`)}</Text>
+                        <Text>{colors.muted('  • Status: Querying provider endpoint & processing tokens...')}</Text>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
+
+          {/* Mode & Model Indicator Row */}
+          <Box paddingX={1} marginBottom={0} marginTop={1}>
+            <Text>{mode === 'plan' ? colors.success('Plan') : colors.error('Build')} · {colors.secondary(activeModel)}</Text>
+          </Box>
+
+          {/* Input Prompt Box with vertical border styling matching OpenCode */}
+          <Box 
+            borderStyle="single" 
+            borderColor={colors.inkBorderColor} 
+            borderTop={true}
+            borderBottom={true}
+            borderLeft={true}
+            borderRight={false}
+            paddingX={1} 
+            gap={1} 
+            height={3}
+            marginBottom={0}
+          >
+            {isGenerating ? (
+              <Text>{colors.muted('Generating...')}</Text>
+            ) : (
+              <Box gap={0}>
+                <Text>{colors.primary('>')}</Text>
+                <Text>{beforeCursor}</Text>
+                <Text inverse>{cursorChar}</Text>
+                <Text>{afterCursor}</Text>
+              </Box>
+            )}
+          </Box>
         </Box>
-      )}
 
-      {/* Bottom Divider */}
-      <Text>{colors.muted(`╰${dividerLine}╯`)}</Text>
+        {/* Right Column: Themed Sidebar Panel */}
+        <Box 
+          width={30} 
+          flexDirection="column" 
+          justifyContent="space-between" 
+          paddingLeft={2}
+          borderStyle="single"
+          borderColor={colors.inkBorderColor}
+          borderLeft={true}
+          borderRight={false}
+          borderTop={false}
+          borderBottom={false}
+        >
+          {/* Sidebar Top: Greeting and Metrics */}
+          <Box flexDirection="column" gap={1}>
+            <Box flexDirection="column">
+              <Text bold>{colors.primary('Greeting')}</Text>
+              <Text>{colors.text('Active workspace session')}</Text>
+            </Box>
 
-      {/* Navigation hints */}
-      <Box paddingX={1} marginBottom={1}>
+            <Box flexDirection="column" marginTop={1}>
+              <Text bold>{colors.secondary('Context')}</Text>
+              <Text>{colors.text(`${formatNumber(usedTokens)} tokens`)}</Text>
+              <Text>{colors.muted(`${contextPercent}% used`)}</Text>
+              <Text>{colors.success(`$${cost.toFixed(4)} spent`)}</Text>
+            </Box>
+
+            <Box flexDirection="column" marginTop={1}>
+              <Text bold>{colors.primary('Mode settings')}</Text>
+              <Text>{colors.text(mode === 'plan' ? 'Read-only mode' : 'Execution mode')}</Text>
+            </Box>
+          </Box>
+
+          {/* Sidebar Bottom: App version & status dot indicator */}
+          <Box gap={1} alignItems="center">
+            <Text color="green">●</Text>
+            <Text>{colors.text('AI Carry 1.0.0')}</Text>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Footer Area: Full-width directory and shortcut indicators */}
+      <Box flexDirection="row" justifyContent="space-between" borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={colors.inkBorderColor} paddingX={1} height={2}>
+        <Text>{colors.muted(activeDir)}</Text>
         <Text>{colors.muted(
           showModelSelector 
             ? isFetchingModels 
@@ -858,22 +934,8 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
               ? 'Arrow keys: Navigate | Enter: Load | Del: Delete | Esc: Close'
               : isGenerating 
                 ? 'T: Toggle Thinking Details | Esc: Exit'
-                : 'Tab: Toggle Mode | Ctrl+M: Select Model | Ctrl+H: History | Ctrl+P/N: Cmd History | Ctrl+Z/Y: Undo/Redo'
+                : 'Tab: Toggle Mode | Ctrl+M: Select Model | Ctrl+H: History'
         )}</Text>
-      </Box>
-
-      {/* Input row with native shell cursor feel */}
-      <Box gap={1}>
-        <Text>{colors.primary('>')}</Text>
-        {isGenerating ? (
-          <Text>{colors.muted('Generating...')}</Text>
-        ) : (
-          <Box gap={0}>
-            <Text>{beforeCursor}</Text>
-            <Text inverse>{cursorChar}</Text>
-            <Text>{afterCursor}</Text>
-          </Box>
-        )}
       </Box>
     </Box>
   );

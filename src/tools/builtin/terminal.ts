@@ -14,7 +14,7 @@ export class TerminalTool implements Tool {
     },
   };
 
-  private static activeCwd: string = process.cwd();
+  public static activeCwd: string = process.cwd();
 
   async run(args: { command: string }): Promise<ToolOutput> {
     try {
