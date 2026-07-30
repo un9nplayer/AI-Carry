@@ -151,12 +151,28 @@ Working Directory: ${activeDir}`;
     // Build initial message list from DB history
     const getMessages = () => {
       const dbHistory = getSessionHistory(activeSessionId);
+      const mapped = dbHistory.map((m) => ({
+        role: (m.role === 'assistant' || m.role === 'system' ? m.role : 'user') as 'user' | 'assistant' | 'system',
+        content: m.content,
+      }));
+
+      // If in Build mode, append a explicit execution system directive at the end if user requested execution
+      if (activeMode === 'build') {
+        const lastUserMsg = [...mapped].reverse().find(m => m.role === 'user')?.content.toLowerCase() || '';
+        const executionTriggerWords = ['execute', 'go', 'do it', 'start', 'run', 'yes', 'proceed', 'ok'];
+        const isTrigger = executionTriggerWords.some(w => lastUserMsg.includes(w));
+
+        if (isTrigger || mapped.length <= 2) {
+          mapped.push({
+            role: 'system' as const,
+            content: `CRITICAL INSTRUCTION: You are in BUILD mode now. The user wants you to execute immediately. Do NOT ask clarifying questions or write plans. Emit your first <terminal> command right now.`,
+          });
+        }
+      }
+
       return [
         { role: 'system' as const, content: baseSystemPrompt },
-        ...dbHistory.map((m) => ({
-          role: (m.role === 'assistant' || m.role === 'system' ? m.role : 'user') as 'user' | 'assistant' | 'system',
-          content: m.content,
-        })),
+        ...mapped,
       ];
     };
 
@@ -170,8 +186,12 @@ Working Directory: ${activeDir}`;
 
       for await (const chunk of generator) {
         if (chunk.content) {
-          iterationText += chunk.content;
-          if (onChunk) onChunk(chunk.content);
+          // Clean out tokenizer artifact tokens like <unk>, [UNK], etc.
+          const cleanChunk = chunk.content.replace(/<unk>|\[UNK\]|\[PAD\]/gi, '');
+          if (cleanChunk) {
+            iterationText += cleanChunk;
+            if (onChunk) onChunk(cleanChunk);
+          }
         }
       }
 
