@@ -18,34 +18,34 @@ export class TerminalTool implements Tool {
 
   async run(args: { command: string }): Promise<ToolOutput> {
     try {
-      // Execute the command in the persistent working directory
+      // Execute the command ONCE in the persistent working directory
       const result = await execa(args.command, {
         shell: true,
         reject: false,
-        timeout: 30000,
+        timeout: 60000,
         cwd: TerminalTool.activeCwd,
       });
 
-      // If the command completed successfully, detect if it was a cd command to update our tracked directory
-      if (result.exitCode === 0) {
-        const trimmedCmd = args.command.trim();
-        // Match things like: cd path, cd .. && something, cd sub; othercmd
-        // To be safe and fully accurate, we query the shell for its current directory after executing the sequence
-        const pwdResult = await execa(`${args.command} && pwd`, {
-          shell: true,
-          reject: false,
-          cwd: TerminalTool.activeCwd,
-        });
-        if (pwdResult.exitCode === 0 && pwdResult.stdout) {
-          TerminalTool.activeCwd = pwdResult.stdout.trim();
-        }
+      // Separately query pwd to track any directory changes
+      const pwdResult = await execa('pwd', {
+        shell: true,
+        reject: false,
+        cwd: TerminalTool.activeCwd,
+      });
+      if (pwdResult.exitCode === 0 && pwdResult.stdout.trim()) {
+        TerminalTool.activeCwd = pwdResult.stdout.trim();
       }
 
-      const hasError = result.exitCode !== 0;
+      const exitCode = result.exitCode ?? 0;
+      const hasError = exitCode !== 0;
+      const stdout = result.stdout || '';
+      const stderr = result.stderr || '';
+      const combinedOutput = [stdout, stderr].filter(Boolean).join('\n');
+
       return {
         success: !hasError,
-        output: result.stdout || result.stderr || `Command completed with exit code: ${result.exitCode}`,
-        error: hasError ? (result.stderr || result.stdout || `Command failed with exit code: ${result.exitCode}`) : undefined,
+        output: combinedOutput || `Command exited with code ${exitCode}`,
+        error: hasError ? (combinedOutput || `Command failed with exit code ${exitCode}`) : undefined,
       };
     } catch (error: any) {
       return {

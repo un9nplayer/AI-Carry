@@ -8,6 +8,7 @@ import { App } from './ui/App.js';
 import { executeSlashCommand } from './cli/commands.js';
 import { parseToolCalls, executeToolCalls } from './tools/executor.js';
 import { TerminalTool } from './tools/builtin/terminal.js';
+import { loadProjectContext } from './context/loader.js';
 import { createSession, getSessionHistory, addMessageToSession, updateSessionModel, listSessions, deleteSession } from './sessions/manager.js';
 
 // Init config and database
@@ -113,7 +114,13 @@ You are currently in BUILD mode (execution). In this mode:
 ${toolDocs}
 `;
 
-  const baseSystemPrompt = activeMode === 'build' ? buildPrompt : planPrompt;
+  // Load project context from .aicarry/AGENTS.md and .aicarry/CONTEXT.md
+  const projectContext = loadProjectContext(activeDir);
+  const projectContextBlock = projectContext
+    ? `\n\n## Project Instructions\n\n${projectContext}`
+    : '';
+
+  const baseSystemPrompt = (activeMode === 'build' ? buildPrompt : planPrompt) + projectContextBlock;
 
   const finalMessages = [
     { role: 'system' as const, content: baseSystemPrompt },

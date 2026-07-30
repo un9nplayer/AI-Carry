@@ -24,8 +24,11 @@ export function renderMarkdown(markdown: string): string {
     return `\n${border}\n${highlighted}${streamingIndicator}\n${border}\n`;
   });
 
-  // 2. Tool Calls formatting: <terminal>...</terminal> or streaming <terminal>...
-  const toolTags = ['terminal', 'cat', 'grep'];
+  // 2. Tool Calls formatting: <terminal>...</terminal> etc.
+  const toolTags = ['terminal', 'cat', 'grep', 'write', 'edit', 'webfetch', 'websearch'];
+  const toolIcons: Record<string, string> = {
+    terminal: '⬡', cat: '◈', grep: '◎', write: '✎', edit: '✏', webfetch: '⟁', websearch: '⌕',
+  };
   for (const tool of toolTags) {
     const openTag = `<${tool}>`;
     const closeTag = `</${tool}>`;
@@ -36,8 +39,9 @@ export function renderMarkdown(markdown: string): string {
       if (startIdx === -1) break;
       
       const endIdx = output.indexOf(closeTag, startIdx + openTag.length);
-      const border = chalk.gray('─'.repeat(60));
-      const header = `\n${chalk.bgBlue.black.bold(` 🔧 TOOL CALL: ${tool.toUpperCase()} `)}\n${border}\n`;
+      const toolIcon = toolIcons[tool] || '⬡';
+      const border = chalk.gray('─'.repeat(56));
+      const header = `\n${chalk.gray(`  ${toolIcon} ${tool}`)}\n${border}\n`;
       
       if (endIdx !== -1) {
         // Completed tag
@@ -91,11 +95,12 @@ export function renderMarkdown(markdown: string): string {
       : output.slice(startIdx + openTag.length)
     ).trim();
     
-    const isError = cleanContent.toLowerCase().includes('error:');
-    const statusHeader = isError 
-      ? chalk.bgRed.black.bold(` ❌ TOOL ERROR: ${tool.toUpperCase()} `)
-      : chalk.bgGreen.black.bold(` ✅ TOOL OUTPUT: ${tool.toUpperCase()} `);
-    const border = isError ? chalk.red('─'.repeat(60)) : chalk.green('─'.repeat(60));
+    const isError = cleanContent.toLowerCase().startsWith('error:') || cleanContent.toLowerCase().includes('\nerror:');
+    const statusIcon = isError ? '✗' : '✓';
+    const statusHeader = isError
+      ? chalk.rgb(200, 100, 95)(`  ${statusIcon} ${tool}`)
+      : chalk.rgb(120, 180, 120)(`  ${statusIcon} ${tool}`);
+    const border = chalk.gray('─'.repeat(56));
     
     if (endIdx !== -1) {
       // Completed output tag
@@ -131,17 +136,20 @@ export function renderMarkdown(markdown: string): string {
   // 4. Inline code: `code`
   output = output.replace(/`([^`]+)`/g, (_, code) => chalk.bgGray.black(` ${code} `));
 
-  // 5. Headings: # Header
-  output = output.replace(/^# (.*)$/gm, (_, title) => chalk.bold.cyan(`\n█ ${title}\n`));
-  output = output.replace(/^## (.*)$/gm, (_, title) => chalk.bold.blue(`\n▓ ${title}\n`));
-  output = output.replace(/^### (.*)$/gm, (_, title) => chalk.bold.magenta(`\n▒ ${title}\n`));
+  // 5. Headings
+  output = output.replace(/^# (.*)$/gm, (_, title) => chalk.rgb(210, 210, 205).bold(`\n${title}\n`));
+  output = output.replace(/^## (.*)$/gm, (_, title) => chalk.rgb(110, 190, 185)(`\n${title}\n`));
+  output = output.replace(/^### (.*)$/gm, (_, title) => chalk.rgb(185, 148, 100)(`${title}`));
+
+  // 6. Numbered lists: 1. 2. etc. highlight number
+  output = output.replace(/^(\d+)\. (.*)$/gm, (_, n, text) => `  ${chalk.rgb(185, 148, 100)(n + '.')} ${text}`);
 
   // 6. Bold & Italic
   output = output.replace(/\*\*([^*]+)\*\*/g, (_, text) => chalk.bold(text));
   output = output.replace(/\*([^*]+)\*/g, (_, text) => chalk.italic(text));
 
   // 7. Lists
-  output = output.replace(/^\s*[-*+]\s+(.*)$/gm, (_, text) => `  ${chalk.cyan('•')} ${text}`);
+  output = output.replace(/^\s*[-*+]\s+(.*)$/gm, (_, text) => `  ${chalk.rgb(120, 120, 118)('·')} ${text}`);
 
   // 8. Blockquotes: > quote
   output = output.replace(/^>\s+(.*)$/gm, (_, text) => chalk.dim(`  │ ${text}`));

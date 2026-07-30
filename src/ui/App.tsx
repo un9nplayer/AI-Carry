@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
+import { execa } from 'execa';
 import { renderMarkdown } from './markdown.js';
 import { themes } from './themes.js';
 import { TerminalTool } from '../tools/builtin/terminal.js';
@@ -71,6 +72,7 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
   const [cost, setCost] = useState(0.0);
   const [contextPercent, setContextPercent] = useState(0);
   const [theme, setTheme] = useState(initialTheme || 'dark');
+  const [copyNotification, setCopyNotification] = useState('');
   const colors = themes[theme] || themes.dark;
   const { exit } = useApp();
 
@@ -273,6 +275,44 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
     setCursorPosition(nextCursor);
   };
 
+  // Copy all chat messages to OS clipboard
+  const copyToClipboard = async (text: string) => {
+    // Strip ANSI escape sequences before copying
+    const stripped = text.replace(/\u001b\[[0-9;]*[mGKHFJl]/g, '').replace(/\u001b\[[\u003c][0-9;]*[Mm]/g, '');
+    const platform = process.platform;
+    try {
+      if (platform === 'linux') {
+        try {
+          await execa('xclip', ['-selection', 'clipboard'], { input: stripped, shell: false });
+        } catch {
+          await execa('xsel', ['--clipboard', '--input'], { input: stripped, shell: false });
+        }
+      } else if (platform === 'darwin') {
+        await execa('pbcopy', { input: stripped, shell: false });
+      } else {
+        await execa('clip.exe', { input: stripped, shell: false });
+      }
+      setCopyNotification('✓ Copied to clipboard');
+    } catch {
+      setCopyNotification('✗ Copy failed (install xclip or xsel)');
+    }
+    setTimeout(() => setCopyNotification(''), 2500);
+  };
+
+  const buildChatText = (msgs: typeof history): string => {
+    return msgs
+      .filter(m => !(m.role === 'system' && (
+        m.content.startsWith('Switched mode to:') ||
+        m.content.startsWith('Switched active model to:') ||
+        m.content.startsWith('Welcome to AI Carry')
+      )))
+      .map(m => {
+        const label = m.role === 'user' ? 'You' : m.role === 'system' ? 'System' : 'AI Carry';
+        return `${label}:\n${m.content}`;
+      })
+      .join('\n\n');
+  };
+
   const openModelSelector = () => {
     setShowModelSelector(true);
     setIsFetchingModels(true);
@@ -415,9 +455,12 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
       return;
     }
 
-    // Ctrl+Y Redo
+    // Ctrl+Y: Copy chat to clipboard if input empty, otherwise Redo
     if (key.ctrl && input === 'y') {
-      if (redoStack.length > 0) {
+      if (inputBuffer === '') {
+        // Copy all chat messages to clipboard
+        copyToClipboard(buildChatText(history));
+      } else if (redoStack.length > 0) {
         const nextVal = redoStack[redoStack.length - 1];
         setRedoStack((prev) => prev.slice(0, -1));
         setUndoStack((prev) => [...prev, inputBuffer]);
@@ -948,17 +991,20 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
 
       {/* Footer Area: Full-width directory and shortcut indicators */}
       <Box flexDirection="row" justifyContent="space-between" borderStyle="single" borderTop={true} borderBottom={false} borderLeft={false} borderRight={false} borderColor={colors.inkBorderColor} paddingX={1} height={2}>
-        <Text>{colors.muted(activeDir)}</Text>
+        <Box gap={2}>
+          <Text>{colors.muted(activeDir)}</Text>
+          {copyNotification ? <Text>{colors.success(copyNotification)}</Text> : null}
+        </Box>
         <Text>{colors.muted(
           showModelSelector 
             ? isFetchingModels 
               ? 'Esc: Cancel' 
-              : 'Arrow keys: Navigate | Enter: Select | Esc: Back'
+              : '↑↓: Navigate | Enter: Select | Esc: Back'
             : showChatHistorySelector
-              ? 'Arrow keys: Navigate | Enter: Load | Del: Delete | Esc: Close'
+              ? '↑↓: Navigate | Enter: Load | Del: Delete | Esc: Close'
               : isGenerating 
-                ? 'T: Toggle Thinking Details | Esc: Exit'
-                : 'Tab: Toggle Mode | Ctrl+M: Select Model | Ctrl+H: History'
+                ? 'T: Expand Thinking | Esc: Exit'
+                : 'Tab: Mode | Ctrl+M: Model | Ctrl+H: History | Ctrl+Y: Copy'
         )}</Text>
       </Box>
     </Box>
