@@ -18,15 +18,17 @@ export class TerminalTool implements Tool {
 
   async run(args: { command: string }): Promise<ToolOutput> {
     try {
-      // Execute the command ONCE in the persistent working directory
-      const result = await execa(args.command, {
+      const trimmedCmd = args.command.trim();
+
+      // Execute command in persistent active directory
+      const result = await execa(trimmedCmd, {
         shell: true,
         reject: false,
-        timeout: 60000,
+        timeout: 120000, // 2 min timeout for recon tools
         cwd: TerminalTool.activeCwd,
       });
 
-      // Separately query pwd to track any directory changes
+      // Update tracked directory if pwd changed
       const pwdResult = await execa('pwd', {
         shell: true,
         reject: false,
@@ -38,19 +40,28 @@ export class TerminalTool implements Tool {
 
       const exitCode = result.exitCode ?? 0;
       const hasError = exitCode !== 0;
-      const stdout = result.stdout || '';
-      const stderr = result.stderr || '';
-      const combinedOutput = [stdout, stderr].filter(Boolean).join('\n');
+      const stdout = (result.stdout || '').trim();
+      const stderr = (result.stderr || '').trim();
 
+      if (hasError) {
+        const errText = stderr || stdout || `Process exited with code ${exitCode}`;
+        return {
+          success: false,
+          output: errText,
+          error: errText,
+        };
+      }
+
+      // Success case
+      const outputText = stdout || stderr || `Done (${trimmedCmd})`;
       return {
-        success: !hasError,
-        output: combinedOutput || `Command exited with code ${exitCode}`,
-        error: hasError ? (combinedOutput || `Command failed with exit code ${exitCode}`) : undefined,
+        success: true,
+        output: outputText,
       };
     } catch (error: any) {
       return {
         success: false,
-        output: '',
+        output: error.message || String(error),
         error: error.message || String(error),
       };
     }

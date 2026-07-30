@@ -220,7 +220,14 @@ Working Directory: ${activeDir}`;
       }
     }
 
-    return { output: fullOutput };
+    // Return synced DB history to UI
+    const finalDbHistory = getSessionHistory(activeSessionId);
+    const mappedHistory = finalDbHistory.map((m) => ({
+      role: (m.role === 'assistant' || m.role === 'system' ? m.role : 'user') as 'user' | 'assistant' | 'system',
+      content: m.content,
+    }));
+
+    return { output: fullOutput, payload: { history: mappedHistory } };
   } catch (error: any) {
     const errMsg = `Error: ${error.message || String(error)}`;
     addMessageToSession(activeSessionId, 'assistant', errMsg, 0, 0, 0);

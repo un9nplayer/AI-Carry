@@ -696,7 +696,11 @@ export function App({ modelName, initialHistory, onCommand, onModelChange, onLis
           return;
         }
 
-        setHistory((prev) => [...prev, { role: 'assistant', content: response.output }]);
+        if (response.payload?.history) {
+          setHistory(response.payload.history);
+        } else {
+          setHistory((prev) => [...prev, { role: 'assistant', content: response.output }]);
+        }
       } catch (err: any) {
         setHistory((prev) => [...prev, { role: 'system', content: `Execution Error: ${err.message || String(err)}` }]);
       } finally {
